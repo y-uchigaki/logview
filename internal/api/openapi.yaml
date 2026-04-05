@@ -1,0 +1,197 @@
+openapi: 3.0.3
+info:
+  title: Logview API
+  description: |
+    ログの取り込み・一覧・集計の HTTP API。リアルタイム配信は WebSocket `GET /ws`
+    （本ドキュメントの paths には含めません）。
+  version: 1.0.0
+servers:
+  - url: http://127.0.0.1:18080
+    description: Docker Compose 既定（ホスト側 API ポート）
+paths:
+  /healthz:
+    get:
+      operationId: healthz
+      summary: ヘルスチェック
+      tags: [system]
+      responses:
+        "200":
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+  /api/stats:
+    get:
+      operationId: getStats
+      summary: 集計（総数・レベル別・直近24h・直近60分分バケット）
+      tags: [aggregate]
+      responses:
+        "200":
+          description: 集計結果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Stats"
+        "500":
+          description: ストアエラー
+  /api/stats/severity-day:
+    get:
+      operationId: getSeverityDayByHour
+      summary: 指定日の error / critical / fatal を 1 時間（60 分）バケットで集計
+      tags: [aggregate]
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          description: 集計する暦日（YYYY-MM-DD）
+        - name: timezone
+          in: query
+          required: false
+          schema:
+            type: string
+            default: Asia/Tokyo
+          description: IANA タイムゾーン
+      responses:
+        "200":
+          description: 24 バケット（0〜23 時）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeverityDayResult"
+        "400":
+          description: パラメータ不正
+        "500":
+          description: ストアエラー
+  /api/logs:
+    get:
+      operationId: listLogs
+      summary: 直近ログ一覧（最大100件）
+      tags: [logs]
+      responses:
+        "200":
+          description: 新しい順
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LogEntry"
+        "500":
+          description: ストアエラー
+    post:
+      operationId: createLog
+      summary: ログ取り込み
+      tags: [logs]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LogIngest"
+      responses:
+        "200":
+          description: 保存されたエントリ
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogEntry"
+        "400":
+          description: 不正リクエスト
+        "500":
+          description: ストアエラー
+components:
+  schemas:
+    LogIngest:
+      type: object
+      required: [message]
+      properties:
+        host:
+          type: string
+        level:
+          type: string
+          default: info
+        message:
+          type: string
+        meta:
+          description: 任意の JSON
+          nullable: true
+    LogEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+        host:
+          type: string
+        level:
+          type: string
+        message:
+          type: string
+        meta:
+          description: 任意の JSON
+          nullable: true
+    Stats:
+      type: object
+      properties:
+        total:
+          type: integer
+          format: int64
+        byLevel:
+          type: object
+          additionalProperties:
+            type: integer
+            format: int64
+        last24h:
+          type: integer
+          format: int64
+        recentPerMin:
+          type: array
+          items:
+            $ref: "#/components/schemas/TimeBucket"
+    TimeBucket:
+      type: object
+      properties:
+        minute:
+          type: string
+          description: 分単位の UTC タイムスタンプ（RFC3339）
+        count:
+          type: integer
+          format: int64
+    SeverityDayResult:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        timezone:
+          type: string
+        buckets:
+          type: array
+          items:
+            $ref: "#/components/schemas/SeverityDayBucket"
+    SeverityDayBucket:
+      type: object
+      properties:
+        hour:
+          type: integer
+          description: 指定タイムゾーンでの時（0〜23）
+        label:
+          type: string
+          example: "09:00"
+        error:
+          type: integer
+          format: int64
+        critical:
+          type: integer
+          format: int64
+        fatal:
+          type: integer
+          format: int64

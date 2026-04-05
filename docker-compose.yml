@@ -1,0 +1,35 @@
+# ホスト側のよく使うポートと被りにくいマッピング:
+#   API:  18080 -> コンテナ 8080
+#   DB:   15432 -> コンテナ 5432（ローカル Postgres と共存しやすい）
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: logview
+      POSTGRES_PASSWORD: logview
+      POSTGRES_DB: logview
+    ports:
+      - "${LOGVIEW_DB_PORT:-15432}:5432"
+    volumes:
+      - logview_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U logview -d logview"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  api:
+    build: .
+    ports:
+      - "${LOGVIEW_API_PORT:-18080}:8080"
+    environment:
+      DATABASE_URL: postgres://logview:logview@db:5432/logview?sslmode=disable
+      # WebSocket CheckOrigin: 空 = 全 Origin 許可。ホストの LOGVIEW_WS_STRICT がコンテナに入ると LAN 等が弾かれる
+      LOGVIEW_WS_STRICT: ""
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  logview_pgdata:
